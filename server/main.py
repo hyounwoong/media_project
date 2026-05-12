@@ -186,9 +186,9 @@ async def get_fill_height(session_uuid: str, target_ml: float):
     if not volume_profile:
         return {"status": "error", "message": "Volume profile not available"}
     
-    # Check if target exceeds max volume
+    # Check if target exceeds max volume (with a small float tolerance)
     max_ml = result.get("volume_ml", 0)
-    if target_ml > max_ml:
+    if target_ml > max_ml + 0.1:
         return {
             "status": "exceeded",
             "message": f"Target {target_ml}mL exceeds max volume {max_ml}mL",

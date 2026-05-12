@@ -289,5 +289,14 @@ def find_height_for_volume(volume_profile, target_ml, center_axis, first_frame, 
                 return None, None
         prev = curr
     
-    # Target exceeds max volume
-    return None, None
+    # If the loop finishes without returning, it means target_ml is very close 
+    # to or slightly larger than the max volume (often due to HTTP float precision).
+    # In this case, just return the very top of the cup (the last slice).
+    last_curr = volume_profile[-1]
+    point_scene = np.array([center_axis[0], center_axis[1], last_curr['z']])
+    try:
+        point_arkit = transform_point_to_arcore(point_scene, first_frame, scene_metadata)
+        return point_arkit.tolist(), float(last_curr['radius'])
+    except Exception as e:
+        logger.warning(f"Failed to transform fill height at max volume: {e}")
+        return None, None
