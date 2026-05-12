@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pour AR Debug Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .active-session {
+            border-left: 4px solid #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        #three-canvas-container {
+            width: 100%;
+            height: 500px;
+            background-color: #1e293b;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body class="h-screen flex overflow-hidden">
+
+    <!-- Sidebar: Session List -->
+    <aside class="w-80 glass border-r border-slate-700 flex flex-col">
+        <div class="p-6 border-b border-slate-700">
+            <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+                Pour AR Debug</h1>
+            <p class="text-xs text-slate-400 mt-1">Real-time Session Monitor</p>
+        </div>
+        <div id="session-list" class="flex-1 overflow-y-auto p-4 space-y-2">
+            <!-- Sessions will be loaded here -->
+            <div class="animate-pulse flex space-x-4 p-4">
+                <div class="flex-1 space-y-4 py-1">
+                    <div class="h-4 bg-slate-700 rounded w-3/4"></div>
+                    <div class="h-4 bg-slate-700 rounded"></div>
+                </div>
+            </div>
+        </div>
+        <div class="p-4 border-t border-slate-700 text-center">
+            <button onclick="loadSessions()" class="text-xs text-blue-400 hover:text-blue-300 font-medium">↺ 하드
+                새로고침</button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+        <!-- Header -->
+        <header class="h-16 glass border-b border-slate-700 flex items-center justify-between px-8">
+            <div id="current-session-id" class="text-sm font-mono text-slate-400">세션을 선택해주세요</div>
+            <div id="processing-status" class="px-3 py-1 rounded-full text-xs font-semibold"></div>
+        </header>
+
+        <div id="content-area" class="flex-1 overflow-y-auto p-8 hidden">
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+
+                <!-- 3D Model View -->
+                <section class="space-y-4">
+                    <h2 class="text-lg font-semibold flex items-center">
+                        <span class="mr-2">🧊</span> 3D Reconstruction (GLB)
+                    </h2>
+                    <div id="three-canvas-container" class="glass rounded-xl overflow-hidden min-h-[500px]">
+                        <p id="no-glb-msg"
+                            class="absolute inset-0 flex items-center justify-center text-slate-500 z-10 pointer-events-none">
+                            GLB 모델을 선택해주세요.</p>
+                        <!-- Three.js Canvas will be here -->
+                    </div>
+                </section>
+
+                <!-- Data & Images -->
+                <section class="space-y-8">
+                    <!-- Volume Data -->
+                    <div class="space-y-4">
+                        <h2 class="text-lg font-semibold flex items-center">
+                            <span class="mr-2">📊</span> Volume Result
+                        </h2>
+                        <div class="glass p-6 rounded-xl grid grid-cols-2 gap-4">
+                            <div>
+                                <p class="text-xs text-slate-400 uppercase tracking-wider">Total Volume</p>
+                                <p id="total-vol" class="text-3xl font-bold text-blue-400">-- <span
+                                        class="text-sm font-normal text-slate-500">mL</span></p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-slate-400 uppercase tracking-wider">Slices</p>
+                                <p id="total-slices" class="text-3xl font-bold">--</p>
+                            </div>
+                        </div>
+
+                        <!-- Radius Graph -->
+                        <div class="space-y-4">
+                            <h2 class="text-lg font-semibold flex items-center">
+                                <span class="mr-2">📈</span> Radius Profile (Z vs Radius)
+                            </h2>
+                            <div class="glass p-4 rounded-xl">
+                                <div class="h-64">
+                                    <canvas id="radiusChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Image Gallery -->
+                        <div class="space-y-4">
+                            <h2 class="text-lg font-semibold flex items-center">
+                                <span class="mr-2">📸</span> Capture Images
+                            </h2>
+                            <div id="image-gallery" class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                <!-- Images loaded here -->
+                            </div>
+                        </div>
+                </section>
+
+            </div>
+        </div>
+
+        <!-- Initial Placeholder -->
+        <div id="placeholder-area" class="flex-1 flex items-center justify-center text-slate-500">
+            <div class="text-center">
+                <div class="text-4xl mb-4">🤳</div>
+                <p>촬영을 시작하거나 세션을 선택하세요.</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let currentSession = null;
+        let radiusChart = null;
+
+        // Three.js Globals
+        let scene, camera, renderer, controls, currentModel, centerLine;
+        let alignmentGroup = null;
+        let pendingProfile = null;
+        let pendingCenter2D = null;
+        let pendingAlignment = null;
+        const container = document.getElementById('three-canvas-container');
+
+        function initThree() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1e293b);
+
+            camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.01, 100);
+            camera.position.set(0.2, 0.2, 0.2);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+
+            // Gizmo (AxesHelper)
+            const axesHelper = new THREE.AxesHelper(0.1);
+            scene.add(axesHelper);
+
+            // Grid (Floor)
+            const gridHelper = new THREE.GridHelper(1, 20, 0x444444, 0x222222);
+            scene.add(gridHelper);
+
+            // Resize Observer to fix "F12 to see" issue
+            const resizeObserver = new ResizeObserver(() => {
+                if (!container.clientWidth || !container.clientHeight) return;
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+            resizeObserver.observe(container);
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (controls) controls.update();
+            if (renderer && scene && camera) renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            if (!renderer) return;
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+
+        // Initialize Three.js immediately
+        initThree();
+
+        function cleanupModels() {
+            if (alignmentGroup) {
+                scene.remove(alignmentGroup);
+                alignmentGroup.traverse(child => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                });
+                alignmentGroup = null;
+            }
+            if (currentModel) {
+                scene.remove(currentModel);
+                currentModel = null;
+            }
+            if (centerLine) {
+                scene.remove(centerLine);
+                centerLine = null;
+            }
+        }
+
+        async function loadGLB(url) {
+            const loader = new THREE.GLTFLoader();
+            const msg = document.getElementById('no-glb-msg');
+            msg.innerText = "Loading model...";
+
+            cleanupModels();
+
+            loader.load(url, (gltf) => {
+                currentModel = gltf.scene;
+                msg.classList.add('hidden');
+
+                // If we have profile data, we can try to align
+                if (pendingProfile) {
+                    processVolumeData({
+                        volume_profile: pendingProfile,
+                        metadata: {
+                            center_axis: pendingCenter2D,
+                            alignment_matrix: pendingAlignment
+                        }
+                    });
+                } else {
+                    // Just add it if no data yet (fallback)
+                    scene.add(currentModel);
+                }
+
+                // Adjust camera to fit
+                const box = new THREE.Box3().setFromObject(currentModel);
+                const size = box.getSize(new THREE.Vector3()).length();
+                const center = box.getCenter(new THREE.Vector3());
+                controls.target.copy(center);
+                camera.position.copy(center).add(new THREE.Vector3(size, size, size).multiplyScalar(0.7));
+            }, undefined, (error) => {
+                console.error(error);
+                msg.innerText = "Failed to load GLB";
+                msg.classList.remove('hidden');
+            });
+        }
+
+        function processVolumeData(data) {
+            if (!data || !data.volume_profile || data.volume_profile.length < 2) return;
+            const profile = data.volume_profile;
+            const center2D = data.metadata.center_axis;
+            const alignMatrixData = data.metadata.alignment_matrix;
+
+            pendingProfile = profile;
+            pendingCenter2D = center2D;
+            pendingAlignment = alignMatrixData;
+
+            if (!currentModel) return;
+
+            // 1. Cleanup previous alignment group
+            if (alignmentGroup) {
+                scene.remove(alignmentGroup);
+                alignmentGroup = null;
+            }
+            if (centerLine) scene.remove(centerLine);
+
+            // 2. Create 3D Center Axis Line
+            const zMin = profile[0].z;
+            const zMax = profile[profile.length - 1].z;
+            const cx = center2D[0];
+            const cy = center2D[1];
+
+            const axisPoints = [
+                new THREE.Vector3(cx, cy, zMin),
+                new THREE.Vector3(cx, cy, zMax)
+            ];
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(axisPoints);
+            const material = new THREE.LineBasicMaterial({ color: 0xffff00, linewidth: 5 });
+            centerLine = new THREE.Line(geometry, material);
+
+            // 3. Create Alignment Group
+            alignmentGroup = new THREE.Group();
+
+            // Reset transforms before adding to group
+            currentModel.position.set(0, 0, 0);
+            currentModel.quaternion.set(0, 0, 0, 1);
+
+            alignmentGroup.add(currentModel);
+            alignmentGroup.add(centerLine);
+            scene.add(alignmentGroup);
+
+            // 4. Apply Server Alignment (Raw -> Aligned Z-up)
+            if (alignMatrixData) {
+                const m = new THREE.Matrix4().fromArray(alignMatrixData.flat());
+                currentModel.applyMatrix4(m);
+                centerLine.applyMatrix4(m);
+            }
+
+            // 5. Convert Z-up to Y-up (Three.js Convention)
+            alignmentGroup.rotateX(-Math.PI / 2);
+
+            // 6. Align bottom center to World Origin (0,0,0)
+            const bottomPoint = new THREE.Vector3(cx, cy, zMin);
+            if (alignMatrixData) {
+                bottomPoint.applyMatrix4(new THREE.Matrix4().fromArray(alignMatrixData.flat()));
+            }
+            // Z-up to Y-up for the calculated offset: (x, y, z) -> (x, z, -y)
+            const finalBottom = new THREE.Vector3(bottomPoint.x, bottomPoint.z, -bottomPoint.y);
+
+            alignmentGroup.position.sub(finalBottom);
+        }
+
+        async function loadSessions() {
+            try {
+                const res = await fetch('/api/sessions');
+                const sessions = await res.json();
+                const list = document.getElementById('session-list');
+                list.innerHTML = '';
+
+                sessions.forEach(s => {
+                    const date = new Date(s.time * 1000).toLocaleString('ko-KR', { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                    const div = document.createElement('div');
+                    div.className = `p-4 rounded-lg cursor-pointer transition-all hover:bg-slate-800 ${currentSession === s.uuid ? 'active-session glass' : ''}`;
+                    div.onclick = () => selectSession(s.uuid);
+                    div.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <span class="text-xs font-mono text-slate-500 truncate mr-2">${s.uuid}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded ${getStatusColor(s.status)}">${s.status.toUpperCase()}</span>
+                        </div>
+                        <div class="mt-1 text-sm font-medium">${date}</div>
+                    `;
+                    list.appendChild(div);
+                });
+            } catch (err) {
+                console.error("Failed to load sessions", err);
+            }
+        }
+
+        function getStatusColor(status) {
+            switch (status) {
+                case 'completed': return 'bg-green-500/10 text-green-400';
+                case 'processing': return 'bg-blue-500/10 text-blue-400 animate-pulse';
+                case 'failed': return 'bg-red-500/10 text-red-400';
+                default: return 'bg-slate-500/10 text-slate-400';
+            }
+        }
+
+        async function selectSession(uuid) {
+            currentSession = uuid;
+            document.getElementById('current-session-id').innerText = uuid;
+            document.getElementById('placeholder-area').classList.add('hidden');
+            document.getElementById('content-area').classList.remove('hidden');
+
+            // Refresh list to show active
+            loadSessions();
+
+            try {
+                const res = await fetch(`/api/sessions/${uuid}`);
+                const data = await res.json();
+
+                // Status Update
+                const statusEl = document.getElementById('processing-status');
+                statusEl.innerText = data.status.toUpperCase();
+                statusEl.className = `px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(data.status)}`;
+
+                // GLB & Center Axis
+                if (data.has_glb) {
+                    loadGLB(data.glb_url);
+                } else {
+                    if (currentModel) scene.remove(currentModel);
+                    document.getElementById('no-glb-msg').innerText = "GLB 모델을 찾을 수 없습니다.";
+                    document.getElementById('no-glb-msg').classList.remove('hidden');
+                }
+
+                if (data.debug_data) {
+                    processVolumeData(data.debug_data);
+                } else {
+                    cleanupModels();
+                }
+
+                // Volume Analysis
+                if (data.debug_data) {
+                    document.getElementById('total-vol').innerHTML = `${data.debug_data.total_volume_ml} <span class="text-sm font-normal text-slate-500">mL</span>`;
+                    document.getElementById('total-slices').innerText = data.debug_data.metadata.n_slices;
+                    updateChart(data.debug_data.volume_profile);
+                } else {
+                    document.getElementById('total-vol').innerText = '--';
+                    document.getElementById('total-slices').innerText = '--';
+                    if (radiusChart) radiusChart.destroy();
+                }
+
+                // Gallery
+                const gallery = document.getElementById('image-gallery');
+                gallery.innerHTML = '';
+                data.images.forEach(img => {
+                    const imgUrl = `/data/${uuid}/${img}`;
+                    const div = document.createElement('div');
+                    div.className = "aspect-square rounded-lg overflow-hidden glass border border-slate-700 cursor-zoom-in group relative";
+                    div.onclick = () => window.open(imgUrl, '_blank');
+                    div.innerHTML = `
+                        <img src="${imgUrl}" class="w-full h-full object-cover transition-transform group-hover:scale-110">
+                    `;
+                    gallery.appendChild(div);
+                });
+
+            } catch (err) {
+                console.error("Failed to load session details", err);
+            }
+        }
+
+        function updateChart(profile) {
+            const ctx = document.getElementById('radiusChart').getContext('2d');
+            // Use numeric data objects for linear scales
+            const chartData = profile.map(p => ({
+                x: (p.radius * 100).toFixed(2), // Radius in cm
+                y: p.z.toFixed(3)               // Height in meters
+            }));
+
+            if (radiusChart) {
+                radiusChart.destroy();
+            }
+
+            radiusChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Radius (cm)',
+                        data: chartData,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            display: true,
+                            title: { display: true, text: 'Radius (cm)', color: '#94a3b8' },
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#64748b' }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            title: { display: true, text: 'Height (Z)', color: '#94a3b8' },
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#64748b' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // Auto-refresh sessions every 5 seconds
+        setInterval(loadSessions, 5000);
+        loadSessions();
+    </script>
+</body>
+
+</html>
