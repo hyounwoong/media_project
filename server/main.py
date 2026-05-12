@@ -164,6 +164,11 @@ async def get_result(session_uuid: str):
     
     # Remove calc_metadata from response (internal use only)
     response = {k: v for k, v in result.items() if k != 'calc_metadata'}
+    
+    # [Added] Include volume_profile for client-side interpolation
+    if 'calc_metadata' in result and 'volume_profile' in result['calc_metadata']:
+        response['volume_profile'] = result['calc_metadata']['volume_profile']
+        
     return response
 
 

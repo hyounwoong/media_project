@@ -176,6 +176,15 @@ class NetworkManager: ObservableObject {
     @Published var cupBottomCenter: [Float]?  // Cup bottom center in ARKit world coordinates
     @Published var fillLineCenter: [Float]?   // Fill line center in ARKit world coordinates
     @Published var fillLineRadius: Float?     // Fill line radius for ring drawing
+    @Published var volumeProfile: [VolumeSlice] = []
+    
+    struct VolumeSlice: Codable {
+        let cumulative_ml: Double
+        let radius: Float
+        let center_arkit: [Float]?
+    }
+    
+
     
     enum ProcessStatus: Equatable {
         case idle
@@ -239,10 +248,18 @@ class NetworkManager: ObservableObject {
         await MainActor.run {
             self.volumeResult = volume
             self.cupBottomCenter = resultResponse.cup_bottom_center
+            self.volumeProfile = resultResponse.volume_profile ?? []
             self.processStatus = .completed
             
             if let center = resultResponse.cup_bottom_center {
                 print("Cup bottom center (ARKit): x=\(center[0]), y=\(center[1]), z=\(center[2])")
+            }
+            
+            // Initial fill line calculation
+            if volume >= 100 {
+                updateFillHeightLocally(targetMl: 100)
+            } else {
+                updateFillHeightLocally(targetMl: volume / 2)
             }
         }
         
@@ -273,6 +290,14 @@ class NetworkManager: ObservableObject {
     
     /// Get fill line position for a target volume
     func getFillHeight(targetMl: Double) async throws {
+        // Fallback to local calculation if profile exists
+        if !volumeProfile.isEmpty {
+            await MainActor.run {
+                updateFillHeightLocally(targetMl: targetMl)
+            }
+            return
+        }
+        
         guard let uuid = sessionUUID else {
             throw NetworkError.noSession
         }
@@ -294,6 +319,53 @@ class NetworkManager: ObservableObject {
                 print("Fill height error: \(response.message ?? "unknown")")
             }
         }
+    }
+    
+    /// Update fill height locally using interpolation (Smooth UX)
+    func updateFillHeightLocally(targetMl: Double) {
+        guard !volumeProfile.isEmpty else { return }
+        
+        // Find the bracket
+        var lower: VolumeSlice?
+        var upper: VolumeSlice?
+        
+        for i in 0..<volumeProfile.count {
+            if volumeProfile[i].cumulative_ml >= targetMl {
+                upper = volumeProfile[i]
+                if i > 0 {
+                    lower = volumeProfile[i-1]
+                }
+                break
+            }
+        }
+        
+        // Handle edges
+        if upper == nil {
+            upper = volumeProfile.last
+        }
+        
+        if lower == nil {
+            if let first = volumeProfile.first {
+                self.fillLineCenter = first.center_arkit
+                self.fillLineRadius = first.radius
+            }
+            return
+        }
+        
+        guard let l = lower, let u = upper else { return }
+        
+        // Linear interpolation
+        let totalVolumeDiff = u.cumulative_ml - l.cumulative_ml
+        let t = totalVolumeDiff > 0 ? Float((targetMl - l.cumulative_ml) / totalVolumeDiff) : 0.0
+        
+        if let lCenter = l.center_arkit, let uCenter = u.center_arkit {
+            let cx = lCenter[0] + t * (uCenter[0] - lCenter[0])
+            let cy = lCenter[1] + t * (uCenter[1] - lCenter[1])
+            let cz = lCenter[2] + t * (uCenter[2] - lCenter[2])
+            self.fillLineCenter = [cx, cy, cz]
+        }
+        
+        self.fillLineRadius = l.radius + t * (u.radius - l.radius)
     }
     
     // MARK: - Helpers

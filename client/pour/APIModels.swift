@@ -84,6 +84,7 @@ struct ResultResponse: Codable {
     let status: String
     let volume_ml: Double?
     let cup_bottom_center: [Float]?  // [x, y, z] ARKit world coordinates
+    let volume_profile: [NetworkManager.VolumeSlice]? // [Added] For client-side interpolation
     let message: String?
 }
 

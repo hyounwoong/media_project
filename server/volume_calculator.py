@@ -201,14 +201,39 @@ def calculate_volume(session_path):
     
     # Calculate volume profile (cumulative volume at each height)
     volume_profile = []
+    
+    # [Added] Start with the bottom slice (0 ml)
+    try:
+        bottom_z = volume_data[0]['z']
+        bottom_scene = np.array([center_axis[0], center_axis[1], bottom_z])
+        bottom_arkit = transform_point_to_arcore(bottom_scene, first_frame, scene_metadata).tolist()
+        volume_profile.append({
+            'z': bottom_z,
+            'cumulative_ml': 0.0,
+            'radius': float(np.sqrt(volume_data[0]['area'] / np.pi)),
+            'center_arkit': bottom_arkit
+        })
+    except Exception as e:
+        logger.warning(f"Failed to add bottom slice to profile: {e}")
+
     cumulative_m3 = 0.0
     for i in range(len(volume_data) - 1):
         dv = (volume_data[i]['area'] + volume_data[i+1]['area']) / 2 * (volume_data[i+1]['z'] - volume_data[i]['z'])
         cumulative_m3 += dv
+        
+        # [Added] Pre-calculate ARKit center for each slice
+        z = volume_data[i+1]['z']
+        point_scene = np.array([center_axis[0], center_axis[1], z])
+        try:
+            point_arkit = transform_point_to_arcore(point_scene, first_frame, scene_metadata).tolist()
+        except:
+            point_arkit = None
+
         volume_profile.append({
-            'z': volume_data[i+1]['z'],
+            'z': z,
             'cumulative_ml': cumulative_m3 * 1e6,
-            'radius': np.sqrt(volume_data[i+1]['area'] / np.pi)  # For ring drawing
+            'radius': float(np.sqrt(volume_data[i+1]['area'] / np.pi)),
+            'center_arkit': point_arkit
         })
     
     total_vol_m3 = cumulative_m3

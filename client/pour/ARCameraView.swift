@@ -26,31 +26,9 @@ struct ARCameraView: UIViewRepresentable {
     }
     
     func updateUIView(_ uiView: ARSCNView, context: Context) {
-        // --- Cup Bottom Marker ---
+        // --- Cup Bottom Marker (사용자 요청으로 제거됨) ---
         let existingMarker = uiView.scene.rootNode.childNode(withName: "cupBottomMarker", recursively: false)
-        
-        if let center = cupBottomCenter, center.count == 3 {
-            if existingMarker == nil {
-                let sphere = SCNSphere(radius: 0.01)
-                sphere.firstMaterial?.diffuse.contents = UIColor.systemGreen
-                sphere.firstMaterial?.emission.contents = UIColor.green.withAlphaComponent(0.3)
-                
-                let sphereNode = SCNNode(geometry: sphere)
-                sphereNode.name = "cupBottomMarker"
-                sphereNode.position = SCNVector3(center[0], center[1], center[2])
-                
-                let pulseAction = SCNAction.sequence([
-                    SCNAction.scale(to: 1.2, duration: 0.5),
-                    SCNAction.scale(to: 1.0, duration: 0.5)
-                ])
-                sphereNode.runAction(SCNAction.repeatForever(pulseAction))
-                
-                uiView.scene.rootNode.addChildNode(sphereNode)
-                print("Added bottom marker at: \(center[0]), \(center[1]), \(center[2])")
-            }
-        } else {
-            existingMarker?.removeFromParentNode()
-        }
+        existingMarker?.removeFromParentNode()
         
         // --- Fill Line Ring & Volume Text ---
         let existingRing = uiView.scene.rootNode.childNode(withName: "fillLineRing", recursively: false)
@@ -63,8 +41,9 @@ struct ARCameraView: UIViewRepresentable {
             
             // 1. Create torus (ring)
             let torus = SCNTorus(ringRadius: CGFloat(radius), pipeRadius: 0.0015)
-            torus.firstMaterial?.diffuse.contents = UIColor.systemOrange
-            torus.firstMaterial?.emission.contents = UIColor.orange.withAlphaComponent(0.5)
+            // 투명도를 주기 위해 diffuse에도 withAlphaComponent 적용
+            torus.firstMaterial?.diffuse.contents = UIColor.systemCyan.withAlphaComponent(0.6)
+            torus.firstMaterial?.emission.contents = UIColor.cyan.withAlphaComponent(0.5)
             
             let ringNode = SCNNode(geometry: torus)
             ringNode.name = "fillLineRing"

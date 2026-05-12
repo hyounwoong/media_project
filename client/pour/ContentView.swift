@@ -17,17 +17,10 @@ struct ContentView: View {
     @State private var localCapturedFrames: [(Data, ARMetadata)] = []
     @State private var isProcessingLocally = false
     @State private var targetMlValue: Double = 100  // For fill line slider
-    @Namespace private var modeAnimation
-    @State private var captureMode: CaptureMode = .photo
     
     // ✨ 드래그 위치를 기억하는 변수
     @State private var cardOffset: CGSize = .zero
     @State private var lastCardOffset: CGSize = .zero
-    
-    enum CaptureMode: String, CaseIterable {
-        case photo = "사진"
-        case video = "동영상"
-    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -89,14 +82,15 @@ struct ContentView: View {
                 
                 // 4. Circular Measurement Result (Camera Zoom Style Dial)
                 if let volume = networkManager.volumeResult {
-                    CircularDialPicker(value: $targetMlValue, range: 10...volume, onCommit: {
-                        // 다이얼 조작이 끝나는 즉시 서버에 링 높이 계산을 요청
-                        Task { try? await networkManager.getFillHeight(targetMl: targetMlValue) }
-                    })
-                    .frame(width: screenWidth, height: 150)
-                    // 하단 모드 셀렉터(y: -160)보다 위로 배치
-                    .position(x: screenWidth / 2, y: screenHeight - 280)
-                    .zIndex(100)
+                    CircularDialPicker(value: $targetMlValue, range: 10...volume)
+                        .onChange(of: targetMlValue) { newValue in
+                            // 🚀 서버 통신 없이 실시간으로 클라이언트에서 링 위치 계산 (60fps)
+                            networkManager.updateFillHeightLocally(targetMl: newValue)
+                        }
+                        .frame(width: screenWidth, height: 150)
+                        // 하단 모드 셀렉터(y: -160)보다 위로 배치
+                        .position(x: screenWidth / 2, y: screenHeight - 280)
+                        .zIndex(100)
                 }
                 
                 // 5. Guidance Feedback Overlay
@@ -158,34 +152,7 @@ struct ContentView: View {
                         }
                         .padding(.leading, 20)
                         
-                        HStack(spacing: 0) {
-                            ForEach(CaptureMode.allCases, id: \.self) { mode in
-                                Text(mode.rawValue)
-                                    .font(.system(size: 14, weight: captureMode == mode ? .bold : .medium))
-                                    .foregroundColor(captureMode == mode ? .yellow : .white)
-                                    .padding(.vertical, 8)
-                                    .padding(.horizontal, 16)
-                                    .background(
-                                        ZStack {
-                                            if captureMode == mode {
-                                                Capsule().fill(.thickMaterial)
-                                                    .matchedGeometryEffect(id: "modeBackground", in: modeAnimation)
-                                            }
-                                        }
-                                    )
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                            if !sessionManager.isRecording {
-                                                captureMode = mode
-                                            }
-                                        }
-                                    }
-                            }
-                        }
-                        .padding(4)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Capsule())
+
                     }
                     .frame(width: screenWidth)
                     .position(x: screenWidth / 2, y: screenHeight - 160)
@@ -214,13 +181,13 @@ struct ContentView: View {
                                     .strokeBorder(.white, lineWidth: 4)
                                     .frame(width: 80, height: 80)
                                 
-                                if captureMode == .video && sessionManager.isRecording {
+                                if sessionManager.isRecording {
                                     RoundedRectangle(cornerRadius: 4)
                                         .fill(.red)
                                         .frame(width: 35, height: 35)
                                 } else {
                                     Circle()
-                                        .fill(captureMode == .video ? .red : .white)
+                                        .fill(.red)
                                         .frame(width: 65, height: 65)
                                 }
                             }
@@ -306,7 +273,7 @@ struct ContentView: View {
     
     // MARK: - Actions
     private func handleShutterAction() {
-        if captureMode == .photo { manualCapture() } else { toggleRecording() }
+        toggleRecording()
     }
 
     private func toggleRecording() {
@@ -377,26 +344,7 @@ struct ContentView: View {
         }
     }
     
-    private func manualCapture() {
-        guard let frame = sessionManager.currentFrame else { return }
-        let check = sessionManager.checkShouldCapture(frame: frame)
-        sessionManager.currentFeedback = check.feedback
-        
-        if localCapturedFrames.isEmpty { sessionManager.setWorldMapping(enabled: false) }
 
-        if let (imageData, metadata) = sessionManager.capturePhoto() {
-            isProcessingLocally = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isProcessingLocally = false }
-            localCapturedFrames.append((imageData, metadata))
-            sessionManager.recordCapturedFrame(transform: frame.camera.transform, time: frame.timestamp)
-            Task {
-                do {
-                    if networkManager.sessionUUID == nil { _ = try await networkManager.registerSession() }
-                    try await networkManager.uploadPhoto(imageData: imageData, metadata: metadata)
-                } catch { print("사진 업로드 실패: \(error)") }
-            }
-        }
-    }
     
     private func startProcessing() {
         Task {
@@ -433,7 +381,7 @@ struct ContentView: View {
         networkManager.volumeResult = nil
         networkManager.cupBottomCenter = nil
         networkManager.fillLineCenter = nil
-        networkManager.fillLineRadius = 0
+        networkManager.fillLineRadius = nil
         networkManager.processStatus = .idle
         networkManager.sessionUUID = nil
         sessionManager.setWorldMapping(enabled: true)
